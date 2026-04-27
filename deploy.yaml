@@ -1,0 +1,86 @@
+---
+# mantle-1 <-> osmosis-1 IBC Hermes relayer on Akash
+# Provider target: zencloud.eu (continuity with rpc.assetmantle.one)
+#
+# IMAGE: this SDL references a custom wrapper image
+#   ghcr.io/assetmantle/relayer-mantle-osmosis-hermes:<tag>
+# built from ./Dockerfile in this directory. The wrapper bakes:
+#   - informalsystems/hermes:1.13.1 (digest sha256:c2d8387f...3088c8)
+#   - config.toml.template (Hermes 1.13 syntax)
+#   - entrypoint.sh (envsubst + keys add + hermes start)
+# See README.md "Build & publish" before first deploy.
+#
+# RELAYER_MNEMONIC is NOT in this template. deploy.sh renders
+# deploy-rendered.yaml at deploy time, injecting the mnemonic decrypted
+# from /home/deepanshutr/.relayer-akash/mnemonic.enc, then shreds the
+# rendered file after the manifest is sent to the provider.
+
+version: "2.0"
+
+services:
+  relayer:
+    image: ghcr.io/assetmantle/relayer-mantle-osmosis-hermes:v0.1.0
+    expose:
+      # Hermes Prometheus telemetry. Auth-less; data is non-sensitive
+      # (counter / histogram values for relayed packets, gas, etc.).
+      - port: 3001
+        as: 3001
+        proto: tcp
+        to:
+          - global: true
+    env:
+      # Primary RPC endpoints (stakerhouse + Polkachu chosen for stability;
+      # Polkachu publishes a matching gRPC for both chains, which Hermes needs).
+      - MANTLE_RPC_PRIMARY=https://assetmantle-rpc.polkachu.com:443
+      - MANTLE_RPC_BACKUP=https://assetmantle-rpc.publicnode.com:443
+      - OSMO_RPC_PRIMARY=https://rpc.osmosis.zone:443
+      - OSMO_RPC_BACKUP=https://osmosis-rpc.publicnode.com:443
+      # gRPC endpoints (REQUIRED by Hermes — verified 2026-04-27 via h2 probe).
+      # mantle: Polkachu plaintext h2c on :14690 (returns PROTOCOL_ERROR on GET / -> alive gRPC)
+      # osmo:   Polkachu plaintext h2c on :12590 (returns 415 -> alive gRPC)
+      - MANTLE_GRPC=http://assetmantle-grpc.polkachu.com:14690
+      - OSMO_GRPC=http://osmosis-grpc.polkachu.com:12590
+      # WebSocket endpoints for the push event_source. If commented out,
+      # entrypoint.sh derives them from the RPC primary by mapping
+      # https->wss / http->ws and appending /websocket.
+      - MANTLE_WS=wss://assetmantle-rpc.polkachu.com/websocket
+      - OSMO_WS=wss://rpc.osmosis.zone/websocket
+      - LOG_LEVEL=info
+      # RELAYER_MNEMONIC injected by deploy.sh; do not add here.
+    params:
+      storage:
+        relayer-data:
+          mount: /home/hermes/.hermes
+
+profiles:
+  compute:
+    relayer:
+      resources:
+        cpu:
+          units: 0.5
+        # Hermes (Rust, multi-chain) sits around 250-400MB resident in
+        # steady state. 768Mi gives headroom for `clear_on_start` scans
+        # of busy channels and the Tendermint light-client header buffer.
+        memory:
+          size: 768Mi
+        storage:
+          - size: 512Mi
+          - name: relayer-data
+            size: 1Gi
+            attributes:
+              persistent: true
+              class: beta3
+  placement:
+    zencloud:
+      attributes:
+        host: akash
+      pricing:
+        relayer:
+          denom: uakt
+          amount: 100
+
+deployment:
+  relayer:
+    zencloud:
+      profile: relayer
+      count: 1

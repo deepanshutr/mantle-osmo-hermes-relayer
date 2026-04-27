@@ -1,0 +1,48 @@
+# Wrapper image for the mantle-1 <-> osmosis-1 IBC relayer Akash deployment.
+#
+# Layered on top of the upstream informalsystems/hermes image so we get
+# the vetted Hermes binary verbatim. We add envsubst (gettext-base) for
+# rendering the config template, our pre-shipped config.toml.template,
+# and the entrypoint that performs first-boot init (mnemonic restore +
+# config render + start).
+#
+# Build:
+#   docker build -t ghcr.io/assetmantle/relayer-mantle-osmosis-hermes:v0.1.0 .
+# Publish:
+#   docker push ghcr.io/assetmantle/relayer-mantle-osmosis-hermes:v0.1.0
+#
+# Why 1.13.1 and not v1.13.3?
+#   v1.13.3 was released 2025-09-03 on GitHub but no Docker image was
+#   published for it (or for v1.13.2). Both Docker Hub and ghcr.io stop
+#   at 1.13.1 (May 2025). 1.13.0 added pull-mode event_source, so 1.13.1
+#   covers everything we need. Reproducible digest:
+#     sha256:c2d8387fe885067baf1b083756439481bb28ae9a812efbd2c3e91d5cbe3088c8
+#   (multi-arch index, identical on Docker Hub and ghcr.io).
+
+FROM informalsystems/hermes:1.13.1
+
+# Upstream image: user `hermes` (uid 2000, gid 2000), HOME=/home/hermes,
+# ENTRYPOINT=/usr/bin/hermes. Base is ubuntu:latest with libssl1.1 backported.
+USER root
+
+# envsubst (config render), tini (PID 1 / SIGTERM forwarding), shred (mnemonic).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gettext-base tini coreutils && \
+    rm -rf /var/lib/apt/lists/*
+
+# Bake the config template and entrypoint into the image. The template is
+# expanded at boot via envsubst, so RPC endpoints rotate via SDL env vars
+# without rebuilding.
+RUN mkdir -p /home/hermes/.hermes/keys
+COPY config.toml.template /home/hermes/.hermes/config.toml.template
+COPY entrypoint.sh        /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh && \
+    chown -R hermes:hermes /home/hermes/.hermes
+
+# Akash mounts the persistent volume at /home/hermes/.hermes (per SDL),
+# which preserves keys and config across restarts.
+USER hermes:hermes
+WORKDIR /home/hermes
+
+# tini reaps zombies + forwards SIGTERM cleanly to the hermes process.
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]

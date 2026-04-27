@@ -1,0 +1,114 @@
+# Hermes 1.13 config for the mantle-1 <-> osmosis-1 IBC relayer.
+#
+# This template is rendered through `envsubst` at container start so we can
+# rotate RPC endpoints via SDL env vars without rebuilding the image.
+# Variables used (all required at runtime):
+#   ${MANTLE_RPC_PRIMARY}   e.g. https://assetmantle-rpc.polkachu.com:443
+#   ${MANTLE_GRPC}          e.g. http://assetmantle-grpc.polkachu.com:14690
+#   ${MANTLE_WS}            e.g. wss://assetmantle-rpc.polkachu.com/websocket
+#   ${OSMO_RPC_PRIMARY}     e.g. https://rpc.osmosis.zone:443
+#   ${OSMO_GRPC}            e.g. http://osmosis-grpc.polkachu.com:12590
+#   ${OSMO_WS}              e.g. wss://rpc.osmosis.zone/websocket
+#
+# Hermes auto-discovers paths at start: with `[mode.packets].enabled = true`
+# and both chains declared, it scans every open channel and relays packets
+# without explicit path config (rly's chains+paths split is gone).
+#
+# Trusting periods are intentionally < client trust period on-chain. mantle
+# props enacted clients with trusting_period = 10 days; osmosis with 14 days.
+# Hermes uses these values when SUBMITTING ClientUpdate msgs; setting them
+# < on-chain trust period gives a safety margin so refresh fires before
+# the chain rejects the update.
+
+[global]
+log_level = 'info'
+
+[mode.clients]
+enabled = true
+refresh = true
+misbehaviour = true
+
+# Connection / channel handshake workers off — both ends of channel-0 /
+# channel-232 are already open. We only relay packets and refresh clients.
+[mode.connections]
+enabled = false
+
+[mode.channels]
+enabled = false
+
+[mode.packets]
+enabled = true
+clear_interval = 100
+clear_on_start = true
+tx_confirmation = true
+auto_register_counterparty_payee = false
+
+[telemetry]
+enabled = true
+host = '0.0.0.0'
+port = 3001
+
+[rest]
+enabled = false
+host = '127.0.0.1'
+port = 3000
+
+[tracing_server]
+enabled = false
+port = 5555
+
+# ---------------- mantle-1 ----------------
+[[chains]]
+id = 'mantle-1'
+type = 'CosmosSdk'
+rpc_addr = '${MANTLE_RPC_PRIMARY}'
+grpc_addr = '${MANTLE_GRPC}'
+event_source = { mode = 'push', url = '${MANTLE_WS}', batch_delay = '500ms' }
+rpc_timeout = '15s'
+trusted_node = false
+account_prefix = 'mantle'
+key_name = 'relayer'
+store_prefix = 'ibc'
+default_gas = 200000
+max_gas = 4000000
+gas_price = { price = 0.002, denom = 'umntl' }
+gas_multiplier = 1.4
+dynamic_gas_price = { enabled = false, multiplier = 1.1, max = 0.6 }
+max_msg_num = 30
+max_tx_size = 2097152
+clock_drift = '5s'
+max_block_time = '30s'
+trusting_period = '7days'
+trust_threshold = '1/3'
+address_type = { derivation = 'cosmos' }
+memo_prefix = 'hermes:mantle-osmo'
+
+# ---------------- osmosis-1 ----------------
+[[chains]]
+id = 'osmosis-1'
+type = 'CosmosSdk'
+rpc_addr = '${OSMO_RPC_PRIMARY}'
+grpc_addr = '${OSMO_GRPC}'
+event_source = { mode = 'push', url = '${OSMO_WS}', batch_delay = '500ms' }
+rpc_timeout = '15s'
+trusted_node = false
+account_prefix = 'osmo'
+key_name = 'relayer'
+store_prefix = 'ibc'
+default_gas = 400000
+max_gas = 8000000
+# osmosis charges fees in uosmo or any whitelisted token; uosmo always works.
+# dynamic gas (EIP-1559-style on osmosis) supported via osmosis.txfees.v1beta1
+# query when dynamic_gas_price.enabled = true. Disabled here for predictability;
+# revisit if ack relays start to fail with "insufficient fee".
+gas_price = { price = 0.05, denom = 'uosmo' }
+gas_multiplier = 1.4
+dynamic_gas_price = { enabled = false, multiplier = 1.1, max = 0.6 }
+max_msg_num = 30
+max_tx_size = 2097152
+clock_drift = '20s'
+max_block_time = '30s'
+trusting_period = '10days'
+trust_threshold = '2/3'
+address_type = { derivation = 'cosmos' }
+memo_prefix = 'hermes:mantle-osmo'

@@ -280,6 +280,16 @@ provider=""
 if [ -n "${existing_provider}" ]; then
   provider="${existing_provider}"
   log "lease: reusing existing provider=${provider}"
+elif [ "${mode}" = "update" ]; then
+  # Update mode + no provider in state file (CI from fresh checkout): query
+  # the chain for the active lease's provider rather than re-bidding.
+  log "lease: looking up existing provider for DSEQ=${dseq}"
+  lease_json="$("${PROVIDER_SERVICES}" query market lease list \
+    --owner "${AKASH_KEY_ADDR}" --dseq "${dseq}" --state active \
+    --node "${AKASH_NODE}" --output json 2>/dev/null || echo '{}')"
+  provider="$(printf '%s' "${lease_json}" | "${JQ}" -r '.leases[0].lease.id.provider // empty')"
+  [ -n "${provider}" ] || fail "no active lease found for DSEQ=${dseq} (cannot update)"
+  log "lease: existing provider=${provider}"
 else
   log "lease: waiting up to ${BID_WAIT_SECS}s for bids on DSEQ=${dseq}"
   deadline=$(( $(date +%s) + BID_WAIT_SECS ))
@@ -290,13 +300,16 @@ else
     n_bids="$(printf '%s' "${bids_json}" | "${JQ}" -r '.bids | length' 2>/dev/null || echo 0)"
     if [ "${n_bids}" -gt 0 ]; then
       log "lease: ${n_bids} bid(s) received"
-      printf '%s' "${bids_json}" | "${JQ}" -r '.bids[] | "  bid provider=\(.bid.bid_id.provider) price=\(.bid.price.amount)\(.bid.price.denom)"'
+      # provider-services v0.12+ renamed .bid.bid_id → .bid.id (provider field
+      # moved with it). Older clients still produced bid_id; we no longer
+      # support those.
+      printf '%s' "${bids_json}" | "${JQ}" -r '.bids[] | "  bid provider=\(.bid.id.provider) price=\(.bid.price.amount)\(.bid.price.denom)"'
       break
     fi
     sleep 6
   done
 
-  for cand in $(printf '%s' "${bids_json}" | "${JQ}" -r '.bids[].bid.bid_id.provider'); do
+  for cand in $(printf '%s' "${bids_json}" | "${JQ}" -r '.bids[].bid.id.provider'); do
     info="$("${PROVIDER_SERVICES}" query provider get "${cand}" \
       --node "${AKASH_NODE}" --output json 2>/dev/null || echo '{}')"
     host_uri="$(printf '%s' "${info}" | "${JQ}" -r '.provider.host_uri // empty')"
@@ -309,7 +322,7 @@ else
   if [ -z "${provider}" ]; then
     log "WARN: no bid matched ${PROVIDER_NAME_HINT}; falling back to lowest-price bid"
     provider="$(printf '%s' "${bids_json}" \
-      | "${JQ}" -r '.bids | sort_by(.bid.price.amount | tonumber) | .[0].bid.bid_id.provider')"
+      | "${JQ}" -r '.bids | sort_by(.bid.price.amount | tonumber) | .[0].bid.id.provider')"
     [ -n "${provider}" ] && [ "${provider}" != "null" ] || fail "no usable bid for DSEQ=${dseq}"
     log "lease: fallback provider=${provider}"
   fi

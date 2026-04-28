@@ -175,20 +175,27 @@ export RELAYER_MNEMONIC
 
 # ---------- 3. render SDL ----------------------------------------------------
 log "render: generating ${SDL_RENDERED}"
+GHCR_TOKEN="$(gh auth token 2>/dev/null)"
+[ -n "${GHCR_TOKEN}" ] || fail "render: gh auth token returned empty; run 'gh auth login' first"
 umask 0077
 {
-  awk -v MNEMONIC="${RELAYER_MNEMONIC}" '
+  awk -v MNEMONIC="${RELAYER_MNEMONIC}" -v GHCR="${GHCR_TOKEN}" '
     /# RELAYER_MNEMONIC injected/ {
       print "      - RELAYER_MNEMONIC=" MNEMONIC
       next
+    }
+    /password: __GHCR_TOKEN__/ {
+      sub(/__GHCR_TOKEN__/, GHCR)
     }
     { print }
   ' "${SDL_TEMPLATE}"
 } > "${SDL_RENDERED}"
 
-# Sanity: rendered file must contain the mnemonic line.
+# Sanity: rendered file must contain the mnemonic line + a non-placeholder password.
 grep -q '^      - RELAYER_MNEMONIC=' "${SDL_RENDERED}" \
   || fail "render failed; RELAYER_MNEMONIC line not injected"
+grep -q 'password: __GHCR_TOKEN__' "${SDL_RENDERED}" \
+  && fail "render failed; __GHCR_TOKEN__ placeholder still present"
 log "render: SDL ready (mode 0600, will be shredded on exit)"
 
 # ---------- 4. create or update deployment ----------------------------------
@@ -306,8 +313,13 @@ endpoint="$(printf '%s' "${status_json}" \
 [ "${endpoint}" = ":" ] && endpoint=""
 
 # ---------- 9. persist state ------------------------------------------------
+# Merge deploy outputs into existing state file (preserves operator-curated
+# fields like orphan-packet writeoff notes, lessons learned, balances, etc).
+# Falls back to empty {} on first run.
 log "state: writing ${STATE_FILE}"
+existing="$([ -f "${STATE_FILE}" ] && cat "${STATE_FILE}" || echo '{}')"
 "${JQ}" -n \
+  --argjson existing "${existing}" \
   --arg dseq "${dseq}" \
   --arg provider "${provider}" \
   --arg endpoint "${endpoint}" \
@@ -315,16 +327,14 @@ log "state: writing ${STATE_FILE}"
   --arg osmo_addr "${osmo_addr}" \
   --arg ts "$(date -u +%FT%TZ)" \
   --arg mode "${mode}" \
-  '{
-     dseq: $dseq,
-     provider: $provider,
+  '$existing + {
+     akash_dseq: $dseq,
+     akash_provider: $provider,
      endpoint: $endpoint,
-     mantle_relayer_address: $mantle_addr,
-     osmo_relayer_address: $osmo_addr,
-     created_at: $ts,
+     last_updated: $ts,
      mode: $mode,
+     wallet_addresses: ($existing.wallet_addresses // {mantle1: $mantle_addr, osmo1: $osmo_addr}),
      sdl: "deploy.yaml",
-     image: "ghcr.io/assetmantle/relayer-mantle-osmosis-hermes:v0.1.0",
      relayer: "hermes-1.13.1"
    }' > "${STATE_FILE}"
 chmod 0600 "${STATE_FILE}"

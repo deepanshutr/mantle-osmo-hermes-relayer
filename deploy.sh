@@ -271,8 +271,21 @@ if [ "${mode}" = "create" ]; then
 else
   dseq="${existing_dseq}"
   log "tx: deployment update on DSEQ=${dseq}"
-  "${PROVIDER_SERVICES}" tx deployment update "${SDL_RENDERED}" \
-    --dseq "${dseq}" "${tx_common[@]}" >/dev/null
+  # Akash compares the new SDL's group_spec hash to the on-chain one.
+  # If only image tag / env vars / endpoint config changed (services-level
+  # fields, not group_spec resources), the hash is identical and Akash
+  # rejects with "Invalid: deployment hash". That's fine — we just need
+  # send-manifest to push the new image to the provider. Resource
+  # changes (cpu/mem/storage) DO need the update tx to succeed.
+  upd_out="$("${PROVIDER_SERVICES}" tx deployment update "${SDL_RENDERED}" \
+    --dseq "${dseq}" "${tx_common[@]}" 2>&1 || true)"
+  if printf '%s' "${upd_out}" | grep -q 'Invalid: deployment hash'; then
+    log "tx: SDL group_spec unchanged, skipping deployment update (image/env changes apply via send-manifest)"
+  elif printf '%s' "${upd_out}" | grep -qE '"code"\s*:\s*0'; then
+    log "tx: deployment update accepted"
+  elif printf '%s' "${upd_out}" | grep -q 'Error:'; then
+    fail "deployment update failed: $(printf '%s' "${upd_out}" | head -1)"
+  fi
 fi
 
 # ---------- 5. wait for bids -------------------------------------------------

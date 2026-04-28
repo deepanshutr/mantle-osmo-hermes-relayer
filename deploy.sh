@@ -208,10 +208,34 @@ existing_provider=""
 if [ -f "${STATE_FILE}" ]; then
   existing_dseq="$("${JQ}" -r '.akash_dseq // .dseq // empty' "${STATE_FILE}")"
   existing_provider="$("${JQ}" -r '.akash_provider // .provider // empty' "${STATE_FILE}")"
+fi
+# If we don't have a state file (fresh checkout in CI), query the chain
+# for active deployments owned by AKASH_KEY_ADDR with placement
+# "${PROVIDER_ATTR_HOST}" = our SDL placement key. This avoids accidentally
+# creating a duplicate deployment from CI just because the local state
+# file isn't checked into git.
+if [ -z "${existing_dseq}" ]; then
+  log "state: no DSEQ in state file; querying chain for active deployments owned by ${AKASH_KEY_ADDR}"
+  active_json="$("${PROVIDER_SERVICES}" query deployment list \
+    --owner "${AKASH_KEY_ADDR}" \
+    --node "${AKASH_NODE}" \
+    --state active \
+    --output json 2>/dev/null || echo '{}')"
+  # Match by SDL placement name = group name. Each Akash deployment has
+  # a group whose name equals the placement key in the SDL ("zencloud").
+  # If the same owner has multiple zencloud deployments (unlikely), pick
+  # the most recent.
+  SDL_PLACEMENT="${SDL_PLACEMENT:-zencloud}"
+  existing_dseq="$(printf '%s' "${active_json}" | "${JQ}" -r \
+    --arg place "${SDL_PLACEMENT}" \
+    '[.deployments[] | select(.groups[0].group_spec.name == $place)] | sort_by(.deployment.created_at | tonumber) | last | .deployment.id.dseq // empty')"
   if [ -n "${existing_dseq}" ]; then
-    mode="update"
-    log "state: existing DSEQ=${existing_dseq} provider=${existing_provider}; switching to update mode"
+    log "state: chain query found DSEQ=${existing_dseq} (placement=${PROVIDER_ATTR_HOST}, no provider yet — will look up below)"
   fi
+fi
+if [ -n "${existing_dseq}" ]; then
+  mode="update"
+  log "state: switching to update mode for DSEQ=${existing_dseq}"
 fi
 
 tx_common=(

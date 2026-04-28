@@ -251,7 +251,14 @@ tx_common=(
 )
 
 if [ "${mode}" = "create" ]; then
-  # Akash now requires deposit in uact (not uakt); --deposit-sources balance forces use of uact balance.
+  # IMPORTANT: --deposit denom MUST match SDL `pricing.denom` (deploy.yaml).
+  # If SDL says `denom: uact`, deposit must be Xuact. If SDL says `uakt`,
+  # deposit must be Xuakt. Mismatch → "Mismatched denominations (X != Y):
+  # Deposit invalid" (post-prop-82-deploy.sh hit this 2026-04-28 when
+  # this default was uakt while SDL pricing was uact).
+  # uact transfers are chain-disabled between wallets — only the original
+  # holder can spend it (faucet/seed only). Pick uakt-denominated SDL +
+  # uakt deposit unless you specifically have uact balance to spend.
   AKASH_DEPOSIT="${AKASH_DEPOSIT:-7000000uakt}"
   log "tx: deployment create (deposit ${AKASH_DEPOSIT})"
   create_resp="$("${PROVIDER_SERVICES}" tx deployment create "${SDL_RENDERED}" "${tx_common[@]}" --deposit "${AKASH_DEPOSIT}")"

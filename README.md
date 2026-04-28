@@ -196,6 +196,34 @@ curl -sS "http://${EP}/metrics" | grep -E '^(ibc_|wallet_)'
 #   hermes query client status --chain mantle-1 --client 07-tendermint-0
 ```
 
+## IBC sender timeouts (apps sending packets through this relayer)
+
+When an upstream app (cosmpy / osmosisd / mantleNode) constructs a
+`MsgTransfer` it sets either `timeout_height` (block-relative) or
+`timeout_timestamp` (wall-clock nanoseconds). Both define the deadline by
+which the destination chain must observe the `recv_packet`. If the relayer
+is push-back-pressured (websocket queue depth > batch_delay budget,
+clear-cycle in progress, RPC throttle) the `recv_packet` can land 30–90s
+late.
+
+Recommended sender-side defaults:
+
+- **timeout_height**: use `+5000` blocks minimum (≈4 hours on 6s blocks for
+  Cosmos chains). Block-relative timeouts are safer than timestamps because
+  they tolerate destination-chain stalls (block height freezes) — a
+  timestamp keeps ticking even when blocks don't, prematurely expiring
+  the packet.
+- **timeout_timestamp**: `+1h` (3.6e12 ns) is the minimum if you must use
+  timestamps. Anything below that risks the packet being marked timed-out
+  before the relayer reads it off the websocket. Empirically `+1h` packets
+  *can* still get stuck — the relayer's clear-orphans pass would normally
+  rescue them, but with `clear_interval=0` (this deployment) they will not.
+
+For seeding pool 690 specifically: the IBC test script
+(`autonomy/scripts/ibc_test_mantle_osmo.py`) uses `+1h` timestamps which
+have worked end-to-end in <60s. Production seed transfers should bump
+to `timeout_height = current_height + 5000` for headroom.
+
 ## Hot-standby on home server
 
 The home server's GLIBC 2.35 (Ubuntu 22.04 jammy) **cannot run the Hermes

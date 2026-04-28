@@ -38,8 +38,12 @@ enabled = false
 
 [mode.packets]
 enabled = true
-clear_interval = 100
-clear_on_start = true
+# clear_interval=0 + clear_on_start=false: we never scan for orphan packets.
+# 562 historical orphans on channel-0 / channel-232 are written off in
+# deployment-state.json:30-39 (they require an archive node we don't run).
+# Disabling clearing avoids burning RPC quota on heads we'll never relay.
+clear_interval = 0
+clear_on_start = false
 tx_confirmation = true
 auto_register_counterparty_payee = false
 
@@ -63,7 +67,13 @@ id = 'mantle-1'
 type = 'CosmosSdk'
 rpc_addr = '${MANTLE_RPC_PRIMARY}'
 grpc_addr = '${MANTLE_GRPC}'
-event_source = { mode = 'pull', interval = '30s', max_retries = 4 }
+# mantle on PULL: polkachu serves the RPC over HTTP/2 via Cloudflare. Hermes
+# 1.13's tendermint-rpc websocket client doesn't reliably upgrade through h2,
+# so push mode produces zero `Tx` events from the WS and the supervisor never
+# spawns a packet worker for channel-0 (verified 2026-04-28: backlog grew to
+# 1, recv_packets_confirmed_total stayed at 0). Fallback to pull on mantle
+# only — keeps osmosis on push (kjnodes' WS works fine).
+event_source = { mode = 'pull', interval = '6s', max_retries = 4 }
 rpc_timeout = '15s'
 trusted_node = false
 account_prefix = 'mantle'
@@ -98,7 +108,7 @@ id = 'osmosis-1'
 type = 'CosmosSdk'
 rpc_addr = '${OSMO_RPC_PRIMARY}'
 grpc_addr = '${OSMO_GRPC}'
-event_source = { mode = 'pull', interval = '30s', max_retries = 4 }
+event_source = { mode = 'push', url = '${OSMO_WS}', batch_delay = '500ms' }
 rpc_timeout = '15s'
 trusted_node = false
 account_prefix = 'osmo'

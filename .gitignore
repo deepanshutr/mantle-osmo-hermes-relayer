@@ -13,4 +13,6 @@ health-check.state.json
 scripts/mantle-rpc-proxy/mantle-rpc-proxy
 scripts/mantle-rpc-proxy/go.sum
 scripts/mantle-rpc-proxy/proxy.log
+balance-monitor.log
+balance-monitor.state.json
 /tmp/

@@ -52,7 +52,8 @@ RUN apt-get update && \
 # boot. (Anything under the mount path is hidden at runtime.)
 COPY config.toml.template /usr/local/share/hermes/config.toml.template
 COPY entrypoint.sh        /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY hermes-cli.sh        /usr/local/bin/hermes-cli
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/hermes-cli
 
 # Sidecar proxy binary (see proxy-builder stage above).
 COPY --from=proxy-builder /mantle-rpc-proxy /usr/local/bin/mantle-rpc-proxy

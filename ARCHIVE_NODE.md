@@ -141,3 +141,67 @@ The relayer is healthy and will relay all NEW packets normally.
 
 If/when we sync the archive node, hermes will pick up the orphans
 automatically without any config change.
+
+---
+
+## ✅ UPDATE 2026-04-28 — orphan recovery actually working via thin proxy
+
+Deep research session uncovered a fourth path that doesn't require any
+of the above. **publicnode mantle has tx-index back to at least h=16893918
+(2025-03-31, ~13 months old)** — covering every send_packet event for our
+408 mantle orphans. The block storage is pruned (lowest=21115497) but
+hermes only needs tx data, not historical block proofs, to reconstruct
+MsgRecvPacket / MsgTimeout. The sole blocker was publicnode's stub
+all-zero Secp256k1 validator pubkey on `/status`, which hermes' serde
+parser rejects.
+
+Solution: `scripts/mantle-rpc-proxy/main.go` — a 100-line Go reverse
+proxy that forwards everything to publicnode and rewrites just the
+`validator_info.pub_key` field on `/status` (both REST `GET /status` and
+JSON-RPC `POST /` with `{"method":"status",...}`). The replacement is
+a real Ed25519 pubkey from the actual validator set; hermes uses it
+only to satisfy parsing — light-client trust still flows through
+`/validators` + commit signatures.
+
+Test run 2026-04-28T10:39Z (orphan-test container):
+- Hermes pointed at proxy on `127.0.0.1:18903`
+- `clear packets --chain mantle-1 --port transfer --channel channel-0`
+  found 228 unreceived m→o packets and 100 unacked ones.
+- Pulled all 228 packet data from publicnode's tx-index successfully.
+- Submitted MsgRecvPacket / MsgTimeout batches: ~213 packets cleared in
+  ~10 min (mantle commitment count 408 → 195) before the manual `clear`
+  loop hit gas-underestimate + sequence-collision retries against the
+  parallel-running home + Akash relayers.
+
+Production wiring (done 2026-04-28T10:51Z):
+- Proxy runs on `0.0.0.0:18903` so docker bridge can reach it via
+  `172.17.0.1:18903`.
+- Home docker `hermes-relayer` recreated with
+  `MANTLE_RPC_PRIMARY=http://172.17.0.1:18903`. With
+  `clear_on_start = true` it auto-clears every restart; with
+  `clear_interval = 100` it sweeps every ~10 min thereafter.
+- Wallet drain so far: 0.06 MNTL + 0.79 OSMO in tx fees (~$0.50 total).
+
+Remaining gaps as of 2026-04-28T10:51Z:
+1. **Osmosis side** (152 orphans 51441..55379): publicnode osmosis IS
+   stub-pubkey'd AND its tx-index does NOT cover these sequences (0
+   results for seq 51441). Numia is paywalled (HTTP 401). No public
+   osmosis RPC tested has tx-index this deep. Options: paid
+   ($50-200/mo) or self-host osmosis archive (~5TB).
+2. **45 mantle→osmosis acks** (216389..222646 + 229985..230002):
+   received on osmosis, ack pending back to mantle. Same blocker —
+   needs osmosis-side `write_acknowledgement` events from old heights.
+3. **100 osmosis→mantle acks** (osmo-ch232 seq 54859..55212): mantle
+   received them, write_ack events on mantle have publicnode tx-index
+   coverage → these SHOULD clear via the proxy as the home docker
+   keeps retrying.
+
+TODO:
+- Move proxy from `nohup` to a systemd user unit so it survives reboot.
+- For Akash deployment: bake the proxy binary into the wrapper image
+  as a sidecar (same container, small Go binary), or add a separate
+  service in the SDL.
+- Investigate paid osmosis archive (Polkachu, Numia, Imperator)
+  one-month spend to clear the remaining 152 + 45 osmosis-side
+  orphans, OR write them off permanently (which is the 2026-05-28
+  follow-up cron's purpose).

@@ -23,20 +23,36 @@ log "step 1: load-secrets"
 "$SCRIPT_DIR/load-secrets.sh"
 
 # 2. provider-services binary
+# Akash publishes .zip / .deb / .rpm (no .tar.gz). The .deb is the cleanest
+# install path on ubuntu-latest runners — it lays the binary at
+# /usr/bin/provider-services and brings its own dependency declarations.
 PROV="${PROVIDER_SERVICES:-$HOME/go/bin/provider-services}"
+PROV_VERSION="${PROVIDER_SERVICES_VERSION:-0.12.0}"
 if [ ! -x "$PROV" ]; then
-  log "step 2: provider-services not found at $PROV — installing v0.12.0 via docker"
-  # On Ubuntu 22.04 the v0.12.0 binary needs glibc 2.39 → fall back to docker.
-  # In CI (ubuntu-latest = 22.04+) we usually have the right glibc; try direct first.
-  if curl -sSL https://github.com/akash-network/provider/releases/download/v0.12.0/provider-services_0.12.0_linux_amd64.tar.gz \
-        | tar -xzC /tmp provider-services 2>/dev/null; then
-    sudo mv /tmp/provider-services /usr/local/bin/provider-services
-    PROV="/usr/local/bin/provider-services"
+  log "step 2: provider-services not found at $PROV — installing v$PROV_VERSION"
+  TMPDEB="$(mktemp --suffix=.deb)"
+  URL="https://github.com/akash-network/provider/releases/download/v${PROV_VERSION}/provider-services_${PROV_VERSION}_linux_amd64.deb"
+  if curl -fsSL "$URL" -o "$TMPDEB" && sudo dpkg -i "$TMPDEB" >/dev/null 2>&1; then
+    rm -f "$TMPDEB"
+    PROV="$(command -v provider-services)"
   else
-    log "FATAL: cannot install provider-services in this environment"; exit 1
+    rm -f "$TMPDEB"
+    # Fallback: .zip extract — works without sudo, useful for non-root
+    # environments and as a sanity path if dpkg is unhappy.
+    TMPZIP="$(mktemp --suffix=.zip)"
+    URL_ZIP="https://github.com/akash-network/provider/releases/download/v${PROV_VERSION}/provider-services_${PROV_VERSION}_linux_amd64.zip"
+    if curl -fsSL "$URL_ZIP" -o "$TMPZIP" && unzip -o -q "$TMPZIP" provider-services -d /tmp; then
+      sudo install -m 0755 /tmp/provider-services /usr/local/bin/provider-services
+      rm -f /tmp/provider-services "$TMPZIP"
+      PROV="/usr/local/bin/provider-services"
+    else
+      rm -f "$TMPZIP"
+      log "FATAL: cannot install provider-services v$PROV_VERSION (deb + zip both failed)"
+      exit 1
+    fi
   fi
 fi
-log "step 2: provider-services at $PROV"
+log "step 2: provider-services at $PROV ($($PROV version 2>&1 | head -1))"
 export PROVIDER_SERVICES="$PROV"
 
 # 3. Login to ghcr (image push only happens if we built; deploy.sh doesn't need this

@@ -21,8 +21,11 @@
 set -euo pipefail
 
 # ---------- config -----------------------------------------------------------
-PKG_DIR="/home/deepanshutr/akash-relayer"
-WALLET_DIR="/home/deepanshutr/.relayer-akash"
+# Derive PKG_DIR from this script's location so the workflow runner
+# (which checks out at /home/runner/work/...) and the home box
+# (/home/deepanshutr/akash-relayer) both work without env var fiddling.
+PKG_DIR="${PKG_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+WALLET_DIR="${WALLET_DIR:-${HOME}/.relayer-akash}"
 ADDRESSES_FILE="${WALLET_DIR}/addresses.json"
 MNEMONIC_ENC="${WALLET_DIR}/mnemonic.enc"
 ENC_KEY_FILE="${WALLET_DIR}/.encryption_key"
@@ -42,7 +45,7 @@ PROVIDER_NAME_HINT="${PROVIDER_NAME_HINT:-zencloud.eu}"      # bid hostname filt
 MIN_AKT_REQUIRED="${MIN_AKT_REQUIRED:-5000000}"              # 5 AKT in uakt
 BID_WAIT_SECS="${BID_WAIT_SECS:-300}"
 
-PROVIDER_SERVICES="${PROVIDER_SERVICES:-/home/deepanshutr/go/bin/provider-services}"
+PROVIDER_SERVICES="${PROVIDER_SERVICES:-${HOME}/go/bin/provider-services}"
 JQ="${JQ:-/usr/bin/jq}"
 
 # ---------- helpers ----------------------------------------------------------

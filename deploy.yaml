@@ -19,7 +19,7 @@ version: "2.1"
 
 services:
   relayer:
-    image: ghcr.io/deepanshutr/mantle-osmo-hermes-relayer:v0.1.6
+    image: ghcr.io/deepanshutr/mantle-osmo-hermes-relayer:v0.1.7
     credentials:
       host: ghcr.io
       username: deepanshutr

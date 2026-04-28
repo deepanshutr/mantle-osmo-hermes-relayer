@@ -40,10 +40,13 @@ export MANTLE_RPC_PRIMARY OSMO_RPC_PRIMARY MANTLE_GRPC OSMO_GRPC MANTLE_WS OSMO_
 if [ "$(id -u)" = "0" ]; then
   HERMES_HOME="/home/hermes/.hermes"
   TEMPLATE_BAKED="/usr/local/share/hermes/config.toml.template"
-  # Volume might be mounted empty + root-owned on first boot. Seed the
-  # template + chown the volume to hermes (idempotent on re-runs).
+  # Always overwrite the template from the baked image — config changes
+  # ship via image rebuild, not by editing the persistent volume. (RPC
+  # URLs come from env vars; structural config like packet_filter or
+  # mode.packets settings come from this template.) This is idempotent
+  # if the file is already up-to-date.
   mkdir -p "$HERMES_HOME/keys"
-  if [ ! -f "$HERMES_HOME/config.toml.template" ] && [ -f "$TEMPLATE_BAKED" ]; then
+  if [ -f "$TEMPLATE_BAKED" ]; then
     cp "$TEMPLATE_BAKED" "$HERMES_HOME/config.toml.template"
   fi
   chown -R hermes:hermes /home/hermes

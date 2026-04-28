@@ -3,3 +3,8 @@ deployment-state.json
 deploy-rendered.yaml
 *.swp
 .DS_Store
+deploy.run.log
+post-prop-82-deploy.log
+post-prop-82-deploy.state
+weekly-monitor.log
+weekly-monitor.history.json

@@ -3,7 +3,7 @@
 # Provider target: zencloud.eu (continuity with rpc.assetmantle.one)
 #
 # IMAGE: this SDL references a custom wrapper image
-#   ghcr.io/assetmantle/relayer-mantle-osmosis-hermes:<tag>
+#   ghcr.io/deepanshutr/mantle-osmo-hermes-relayer:<tag>
 # built from ./Dockerfile in this directory. The wrapper bakes:
 #   - informalsystems/hermes:1.13.1 (digest sha256:c2d8387f...3088c8)
 #   - config.toml.template (Hermes 1.13 syntax)
@@ -15,11 +15,16 @@
 # from /home/deepanshutr/.relayer-akash/mnemonic.enc, then shreds the
 # rendered file after the manifest is sent to the provider.
 
-version: "2.0"
+version: "2.1"
 
 services:
   relayer:
-    image: ghcr.io/assetmantle/relayer-mantle-osmosis-hermes:v0.1.0
+    image: ghcr.io/deepanshutr/mantle-osmo-hermes-relayer:v0.1.6
+    credentials:
+      host: ghcr.io
+      username: deepanshutr
+      # password injected by deploy.sh from gh auth token at render time
+      password: __GHCR_TOKEN__
     expose:
       # Hermes Prometheus telemetry. Auth-less; data is non-sensitive
       # (counter / histogram values for relayed packets, gas, etc.).
@@ -31,20 +36,39 @@ services:
     env:
       # Primary RPC endpoints (stakerhouse + Polkachu chosen for stability;
       # Polkachu publishes a matching gRPC for both chains, which Hermes needs).
-      - MANTLE_RPC_PRIMARY=https://assetmantle-rpc.polkachu.com:443
-      - MANTLE_RPC_BACKUP=https://assetmantle-rpc.publicnode.com:443
-      - OSMO_RPC_PRIMARY=https://rpc.osmosis.zone:443
-      - OSMO_RPC_BACKUP=https://osmosis-rpc.publicnode.com:443
+      # Mantle RPC: rpc.assetmantle.one is our own aggregator (Caddy on Akash
+      # DSEQ 26579018) load-balancing across polkachu + publicnode backends.
+      # Polkachu and publicnode both have full block archive but tx-index is
+      # pruned to ~last 7 days on polkachu — older send_packet events become
+      # unprovable. Documented as orphan writeoff in deployment-state.json.
+      - MANTLE_RPC_PRIMARY=https://rpc.assetmantle.one
+      - MANTLE_RPC_BACKUP=https://assetmantle-rpc.polkachu.com:443
+      # Osmosis RPC selection (verified 2026-04-28 against hermes 1.13 pull mode):
+      #   ✗ rpc.osmosis.zone:    persists ABCI but rate-limits HTTP 429 in <1min
+      #   ✗ osmosis-rpc.polkachu.com: relayer-friendly but `discard_abci_responses=true`
+      #                          → hermes errors "node is not persisting finalize block responses"
+      #   ✗ osmosis-rpc.publicnode.com: stubbed validator pubkey (all-zero secp256k1)
+      #                          → hermes errors "invalid secp256k1 key"
+      #   ✓ osmosis.rpc.kjnodes.com: ABCI persisted, valid Ed25519 pubkey,
+      #                          deepest archive (earliest 57.50M), 1.4 req/s sustained
+      - OSMO_RPC_PRIMARY=https://osmosis.rpc.kjnodes.com:443
+      - OSMO_RPC_BACKUP=https://rpc.osmosis.validatus.com:443
       # gRPC endpoints (REQUIRED by Hermes — verified 2026-04-27 via h2 probe).
       # mantle: Polkachu plaintext h2c on :14690 (returns PROTOCOL_ERROR on GET / -> alive gRPC)
       # osmo:   Polkachu plaintext h2c on :12590 (returns 415 -> alive gRPC)
       - MANTLE_GRPC=http://assetmantle-grpc.polkachu.com:14690
-      - OSMO_GRPC=http://osmosis-grpc.polkachu.com:12590
+      # Osmosis gRPC: kjnodes provides TLS-wrapped gRPC at :443 (cleaner than
+      # polkachu's plaintext h2c). polkachu's gRPC produced intermittent
+      # 'transport error' under burst load during 2026-04-28 testing.
+      - OSMO_GRPC=https://osmosis.grpc.kjnodes.com:443
       # WebSocket endpoints for the push event_source. If commented out,
       # entrypoint.sh derives them from the RPC primary by mapping
       # https->wss / http->ws and appending /websocket.
+      # WebSocket (push event_source) is unused — config.toml.template uses
+      # event_source = { mode = 'pull', interval = '30s' }. WS subscription
+      # was unreliable on rpc.osmosis.zone during 2026-04-28 testing.
       - MANTLE_WS=wss://assetmantle-rpc.polkachu.com/websocket
-      - OSMO_WS=wss://rpc.osmosis.zone/websocket
+      - OSMO_WS=wss://osmosis.rpc.kjnodes.com/websocket
       - LOG_LEVEL=info
       # RELAYER_MNEMONIC injected by deploy.sh; do not add here.
     params:
@@ -76,7 +100,7 @@ profiles:
         host: akash
       pricing:
         relayer:
-          denom: uakt
+          denom: uact
           amount: 100
 
 deployment:

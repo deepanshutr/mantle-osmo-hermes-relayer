@@ -34,6 +34,22 @@ if [ -z "${OSMO_WS:-}" ]; then
 fi
 export MANTLE_RPC_PRIMARY OSMO_RPC_PRIMARY MANTLE_GRPC OSMO_GRPC MANTLE_WS OSMO_WS
 
+# Akash mounts the persistent volume root-owned. Re-exec as hermes with proper
+# ownership on first boot; idempotent on subsequent boots (no-op when already
+# owned correctly + already running as hermes).
+if [ "$(id -u)" = "0" ]; then
+  HERMES_HOME="/home/hermes/.hermes"
+  TEMPLATE_BAKED="/usr/local/share/hermes/config.toml.template"
+  # Volume might be mounted empty + root-owned on first boot. Seed the
+  # template + chown the volume to hermes (idempotent on re-runs).
+  mkdir -p "$HERMES_HOME/keys"
+  if [ ! -f "$HERMES_HOME/config.toml.template" ] && [ -f "$TEMPLATE_BAKED" ]; then
+    cp "$TEMPLATE_BAKED" "$HERMES_HOME/config.toml.template"
+  fi
+  chown -R hermes:hermes /home/hermes
+  exec gosu hermes "$0" "$@"
+fi
+
 CONFIG_DIR="${HOME}/.hermes"
 KEYS_DIR="${CONFIG_DIR}/keys"
 CONFIG_FILE="${CONFIG_DIR}/config.toml"

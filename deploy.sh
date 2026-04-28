@@ -82,6 +82,7 @@ need curl
 log "preflight: querying AKT balance for ${AKASH_KEY_ADDR}"
 balance_uakt="$("${PROVIDER_SERVICES}" query bank balances "${AKASH_KEY_ADDR}" \
   --node "${AKASH_NODE}" --output json 2>/dev/null \
+  | grep -E '^\{|^\[' | head -1 \
   | "${JQ}" -r '.balances[] | select(.denom=="uakt") | .amount' || true)"
 balance_uakt="${balance_uakt:-0}"
 log "preflight: AKT balance = ${balance_uakt} uakt (need >= ${MIN_AKT_REQUIRED})"
@@ -143,9 +144,11 @@ elif [ -f "${ENC_KEY_FILE}" ]; then
   # AES-GCM with 32-byte key at .encryption_key. The python decrypt is the
   # one matching the relayer-wallet agent's encryption format (cryptography
   # library, AESGCM(key).decrypt(nonce=ct[:12], data=ct[12:], aad=None)).
-  need python3
+  # Use autonomy venv which has cryptography installed (system python3 doesn't).
+  AUTONOMY_PY="/home/deepanshutr/autonomy/internal/wallet/atomone/.venv/bin/python"
+  [ -x "${AUTONOMY_PY}" ] || AUTONOMY_PY="python3"
   RELAYER_MNEMONIC="$(MNEMONIC_ENC="${MNEMONIC_ENC}" ENC_KEY_FILE="${ENC_KEY_FILE}" \
-    python3 - <<'PY'
+    "${AUTONOMY_PY}" - <<'PY'
 import os, sys
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 key = open(os.environ['ENC_KEY_FILE'], 'rb').read()
@@ -193,8 +196,8 @@ mode="create"
 existing_dseq=""
 existing_provider=""
 if [ -f "${STATE_FILE}" ]; then
-  existing_dseq="$("${JQ}" -r '.dseq // empty' "${STATE_FILE}")"
-  existing_provider="$("${JQ}" -r '.provider // empty' "${STATE_FILE}")"
+  existing_dseq="$("${JQ}" -r '.akash_dseq // .dseq // empty' "${STATE_FILE}")"
+  existing_provider="$("${JQ}" -r '.akash_provider // .provider // empty' "${STATE_FILE}")"
   if [ -n "${existing_dseq}" ]; then
     mode="update"
     log "state: existing DSEQ=${existing_dseq} provider=${existing_provider}; switching to update mode"
@@ -214,8 +217,10 @@ tx_common=(
 )
 
 if [ "${mode}" = "create" ]; then
-  log "tx: deployment create"
-  create_resp="$("${PROVIDER_SERVICES}" tx deployment create "${SDL_RENDERED}" "${tx_common[@]}")"
+  # Akash now requires deposit in uact (not uakt); --deposit-sources balance forces use of uact balance.
+  AKASH_DEPOSIT="${AKASH_DEPOSIT:-7000000uakt}"
+  log "tx: deployment create (deposit ${AKASH_DEPOSIT})"
+  create_resp="$("${PROVIDER_SERVICES}" tx deployment create "${SDL_RENDERED}" "${tx_common[@]}" --deposit "${AKASH_DEPOSIT}")"
   printf '%s\n' "${create_resp}" | "${JQ}" '.' >/dev/null \
     || fail "deployment create returned non-JSON: ${create_resp}"
   txhash="$(printf '%s' "${create_resp}" | "${JQ}" -r '.txhash')"

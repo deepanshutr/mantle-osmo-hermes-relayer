@@ -21,6 +21,12 @@
 
 FROM informalsystems/hermes:1.13.1
 
+# Override OCI source label so ghcr links the package to OUR public repo
+# (not informalsystems/hermes). New ghcr packages inherit visibility from
+# the linked repo, so this matters only for fresh-name pushes.
+LABEL org.opencontainers.image.source=https://github.com/deepanshutr/mantle-osmo-hermes-relayer
+LABEL org.opencontainers.image.description="Hermes 1.13.1 wrapper for mantle-1 <-> osmosis-1 Akash relayer"
+
 # Upstream image: user `hermes` (uid 2000, gid 2000), HOME=/home/hermes,
 # ENTRYPOINT=/usr/bin/hermes. Base is ubuntu:latest with libssl1.1 backported.
 USER root
@@ -30,18 +36,18 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends gettext-base tini coreutils && \
     rm -rf /var/lib/apt/lists/*
 
-# Bake the config template and entrypoint into the image. The template is
-# expanded at boot via envsubst, so RPC endpoints rotate via SDL env vars
-# without rebuilding.
-RUN mkdir -p /home/hermes/.hermes/keys
-COPY config.toml.template /home/hermes/.hermes/config.toml.template
+# Bake the config template OUTSIDE /home/hermes/.hermes so it survives the
+# Akash persistent-volume mount. Entrypoint copies it into the volume on first
+# boot. (Anything under the mount path is hidden at runtime.)
+COPY config.toml.template /usr/local/share/hermes/config.toml.template
 COPY entrypoint.sh        /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh && \
-    chown -R hermes:hermes /home/hermes/.hermes
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Akash mounts the persistent volume at /home/hermes/.hermes (per SDL),
-# which preserves keys and config across restarts.
-USER hermes:hermes
+# which preserves keys and config across restarts. We stay root so the
+# entrypoint can chown the freshly-mounted (root-owned) volume on first
+# boot, then drop privileges to hermes via gosu before exec'ing hermes.
+RUN apt-get update && apt-get install -y --no-install-recommends gosu && rm -rf /var/lib/apt/lists/*
 WORKDIR /home/hermes
 
 # tini reaps zombies + forwards SIGTERM cleanly to the hermes process.

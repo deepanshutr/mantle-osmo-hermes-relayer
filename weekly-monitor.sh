@@ -20,8 +20,10 @@ AKASH_ADDR="akash12yfk3mc2exa3zch7qh6w5ah9s3n0fadtpfurdj"
 MANTLE_CLIENT="07-tendermint-0"
 OSMO_CLIENT="07-tendermint-1923"
 
-# LCDs
-MANTLE_LCD="https://assetmantle-rest.stakerhouse.com"
+# LCDs (REST endpoints)
+# Mantle: our own aggregator on Akash; Osmosis: kjnodes works for relayer
+# but lcd.osmosis.zone is fine for read-only balance/client queries.
+MANTLE_LCD="https://rest.assetmantle.one"
 OSMO_LCD="https://lcd.osmosis.zone"
 AKASH_LCD="https://api.akashnet.net"
 

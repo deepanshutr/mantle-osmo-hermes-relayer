@@ -306,3 +306,39 @@ into the pod and `rm /home/hermes/.hermes/.akash-init-done`, then bounce.
    is best-effort. The rendered file lives in `/home/deepanshutr/akash-relayer/`
    on the LVM volume — `shred` overwrites the file blocks 3 times. Good
    enough for this threat model.
+
+## Monitoring
+
+Two cron-based scripts feed alerts into the orchctl Telegram bot
+(`@x_anyhow_x_bot`):
+
+- **`health-check.sh`** — every 5 minutes. Probes home-container PID +
+  metrics endpoint, then probes the Akash provider's metrics endpoint.
+  Alerts only on state transitions (newly-down or newly-recovered) so
+  Telegram doesn't get spammed every 5 min while a fault persists. Pages
+  the operator if BOTH home and Akash are simultaneously down — that's
+  the actual outage; single-side loss is degraded but still relaying.
+
+- **`weekly-monitor.sh`** — Mondays 09:00 IST. Comprehensive report:
+  AKT lease runway, mantle/osmo wallet balances, IBC client status
+  (Active/Expired/Frozen), pending packet trend (delta vs prior week),
+  Hermes telemetry liveness. Full report sent to Telegram with action-
+  item flags if any threshold is breached.
+
+Cron entries:
+
+```cron
+*/5 * * * * /home/deepanshutr/akash-relayer/health-check.sh
+0 9 * * 1   /home/deepanshutr/akash-relayer/weekly-monitor.sh
+```
+
+Per-run log files:
+
+- `health-check.log` — append-only, recommend `logrotate` for long-term.
+- `weekly-monitor.log` — append-only.
+- `health-check.state.json` — last-tick status (used for transition detection).
+- `weekly-monitor.history.json` — last week's pending-packet counts (used for delta).
+
+Telegram routing uses `notification.telegram.send_alert` from
+`~/autonomy/internal/notification/`. Both scripts run in the user's PATH
+with `linuxbrew` and `autonomy/.venv` available.

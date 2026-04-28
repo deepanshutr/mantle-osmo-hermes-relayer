@@ -8,3 +8,5 @@ post-prop-82-deploy.log
 post-prop-82-deploy.state
 weekly-monitor.log
 weekly-monitor.history.json
+health-check.log
+health-check.state.json

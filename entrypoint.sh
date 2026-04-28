@@ -61,7 +61,7 @@ INIT_MARKER="${CONFIG_DIR}/.akash-init-done"
 
 log() { printf '[entrypoint %s] %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
-trap 'log "received SIGTERM, forwarding to hermes"; kill -TERM "${HERMES_PID:-0}" 2>/dev/null || true; wait "${HERMES_PID:-0}" 2>/dev/null || true; exit 0' TERM INT
+trap 'log "received SIGTERM, forwarding to hermes + proxy"; kill -TERM "${HERMES_PID:-0}" 2>/dev/null || true; kill -TERM "${PROXY_PID:-0}" 2>/dev/null || true; wait "${HERMES_PID:-0}" 2>/dev/null || true; exit 0' TERM INT
 
 mkdir -p "${KEYS_DIR}"
 
@@ -119,6 +119,22 @@ fi
 
 # Drop RELAYER_MNEMONIC from the environment of the hermes process tree.
 unset RELAYER_MNEMONIC
+
+# Start the mantle-rpc-proxy sidecar if available. It rewrites the
+# stub validator pubkey on publicnode's /status so hermes can use
+# publicnode's deeper tx_search index for orphan packet recovery.
+# Hermes' MANTLE_RPC_PRIMARY in the SDL points at 127.0.0.1:18903.
+if command -v mantle-rpc-proxy >/dev/null 2>&1; then
+  log "starting mantle-rpc-proxy sidecar on 127.0.0.1:18903"
+  mantle-rpc-proxy -addr 127.0.0.1:18903 &
+  PROXY_PID=$!
+  # Brief readiness wait — proxy starts in <100ms but hermes' first
+  # RPC call needs the listener up.
+  for _ in 1 2 3 4 5; do
+    if (echo > /dev/tcp/127.0.0.1/18903) 2>/dev/null; then break; fi
+    sleep 0.2
+  done
+fi
 
 log "starting hermes (auto-discovery of paths)"
 hermes --config "${CONFIG_FILE}" start &

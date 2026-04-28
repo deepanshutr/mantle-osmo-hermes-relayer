@@ -19,7 +19,7 @@ version: "2.1"
 
 services:
   relayer:
-    image: ghcr.io/deepanshutr/mantle-osmo-hermes-relayer:v0.1.7
+    image: ghcr.io/deepanshutr/mantle-osmo-hermes-relayer:v0.1.8
     credentials:
       host: ghcr.io
       username: deepanshutr
@@ -36,12 +36,13 @@ services:
     env:
       # Primary RPC endpoints (stakerhouse + Polkachu chosen for stability;
       # Polkachu publishes a matching gRPC for both chains, which Hermes needs).
-      # Mantle RPC: rpc.assetmantle.one is our own aggregator (Caddy on Akash
-      # DSEQ 26579018) load-balancing across polkachu + publicnode backends.
-      # Polkachu and publicnode both have full block archive but tx-index is
-      # pruned to ~last 7 days on polkachu — older send_packet events become
-      # unprovable. Documented as orphan writeoff in deployment-state.json.
-      - MANTLE_RPC_PRIMARY=https://rpc.assetmantle.one
+      # Mantle RPC: hermes uses 127.0.0.1:18903 — the mantle-rpc-proxy
+      # sidecar baked into this image (see Dockerfile). The sidecar
+      # forwards everything to publicnode, rewriting only the stub
+      # validator pubkey on /status. publicnode's tx-index covers all
+      # historical send_packet heights including the orphan ones at
+      # h~16.9M, which polkachu and rpc.assetmantle.one prune.
+      - MANTLE_RPC_PRIMARY=http://127.0.0.1:18903
       - MANTLE_RPC_BACKUP=https://assetmantle-rpc.polkachu.com:443
       # Osmosis RPC selection (verified 2026-04-28 against hermes 1.13 pull mode):
       #   ✗ rpc.osmosis.zone:    persists ABCI but rate-limits HTTP 429 in <1min

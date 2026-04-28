@@ -19,6 +19,17 @@
 #     sha256:c2d8387fe885067baf1b083756439481bb28ae9a812efbd2c3e91d5cbe3088c8
 #   (multi-arch index, identical on Docker Hub and ghcr.io).
 
+# Build stage: compile mantle-rpc-proxy (small Go binary) so the
+# wrapper image can run it as a sidecar before hermes. Why baked-in:
+# publicnode AssetMantle RPC is the only public endpoint with tx_search
+# back to the orphan-packet heights, but it serves a stub all-zero
+# Secp256k1 validator pubkey on /status that hermes 1.13's serde
+# rejects. The proxy rewrites just that one field.
+FROM golang:1.22-alpine AS proxy-builder
+WORKDIR /build
+COPY scripts/mantle-rpc-proxy/go.mod scripts/mantle-rpc-proxy/main.go ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /mantle-rpc-proxy main.go
+
 FROM informalsystems/hermes:1.13.1
 
 # Override OCI source label so ghcr links the package to OUR public repo
@@ -42,6 +53,9 @@ RUN apt-get update && \
 COPY config.toml.template /usr/local/share/hermes/config.toml.template
 COPY entrypoint.sh        /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Sidecar proxy binary (see proxy-builder stage above).
+COPY --from=proxy-builder /mantle-rpc-proxy /usr/local/bin/mantle-rpc-proxy
 
 # Akash mounts the persistent volume at /home/hermes/.hermes (per SDL),
 # which preserves keys and config across restarts. We stay root so the

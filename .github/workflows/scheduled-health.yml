@@ -1,0 +1,69 @@
+name: scheduled-health
+# Every 15 minutes, probe the Akash deployment's metrics endpoint and
+# alert via repository issue if it's unreachable for two consecutive
+# checks. This is the GH-hosted complement to the local 5-min cron in
+# health-check.sh — useful when home box is itself down.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load endpoint from state file
+        id: ep
+        run: |
+          if [ -f deployment-state.json ]; then
+            EP=$(jq -r '.endpoint // empty' deployment-state.json)
+            echo "endpoint=$EP" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Probe metrics endpoint
+        id: probe
+        if: steps.ep.outputs.endpoint != ''
+        run: |
+          set +e
+          curl -sfI --max-time 10 "http://${{ steps.ep.outputs.endpoint }}/metrics" -o /dev/null
+          CODE=$?
+          if [ $CODE -eq 0 ]; then
+            echo "status=ok" >> $GITHUB_OUTPUT
+          else
+            echo "status=down" >> $GITHUB_OUTPUT
+            echo "curl_exit=$CODE" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Open / update incident issue if down
+        if: steps.probe.outputs.status == 'down'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Find any open auto-incident issue for this. If exists, comment.
+          # Otherwise create a fresh one.
+          existing=$(gh issue list --label auto-incident --state open --json number --jq '.[0].number' || echo '')
+          ts=$(date -u +%FT%TZ)
+          msg="$ts: Akash relayer endpoint http://${{ steps.ep.outputs.endpoint }}/metrics unreachable (curl exit ${{ steps.probe.outputs.curl_exit }})"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$msg"
+          else
+            gh issue create --title "Akash relayer down ($ts)" --body "$msg" --label auto-incident
+          fi
+
+      - name: Close auto-incident issues if recovered
+        if: steps.probe.outputs.status == 'ok'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for n in $(gh issue list --label auto-incident --state open --json number --jq '.[].number'); do
+            gh issue comment "$n" --body "Recovered at $(date -u +%FT%TZ)"
+            gh issue close "$n"
+          done

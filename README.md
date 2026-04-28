@@ -342,3 +342,44 @@ Per-run log files:
 Telegram routing uses `notification.telegram.send_alert` from
 `~/autonomy/internal/notification/`. Both scripts run in the user's PATH
 with `linuxbrew` and `autonomy/.venv` available.
+
+## Secrets-driven redeploy from CI
+
+All secrets needed for a fresh redeploy are stored in GitHub Secrets:
+
+| Secret name | Source on disk |
+|-------------|----------------|
+| `RELAYER_MNEMONIC_ENC_BASE64` | `~/.relayer-akash/mnemonic.enc` (base64) |
+| `RELAYER_ENCRYPTION_KEY_BASE64` | `~/.relayer-akash/.encryption_key` (base64) |
+| `RELAYER_ADDRESSES_JSON_BASE64` | `~/.relayer-akash/addresses.json` (base64) |
+| `AKASH_KEYRING_TGZ_BASE64` | `tar -czC ~/.akash keyring-test \| base64 -w0` |
+| `GHCR_PAT` | `gh auth token` (PAT with read:packages, write:packages) |
+
+To trigger a redeploy from CI:
+
+```bash
+gh workflow run redeploy --ref main
+# Optionally bump the image tag:
+gh workflow run redeploy --ref main -f image_tag=v0.1.8
+```
+
+The `redeploy.yml` workflow:
+1. Optionally builds + pushes a new image (if `image_tag` provided).
+2. Runs `scripts/load-secrets.sh` to materialize secrets into the
+   workflow's `$HOME` (mnemonic.enc, encryption_key, keyring).
+3. Runs `scripts/redeploy-from-secrets.sh` which calls `deploy.sh` —
+   that auto-detects the existing DSEQ in `deployment-state.json` and
+   switches to update mode.
+
+The `scheduled-health.yml` workflow runs every 15 minutes and opens
+(or comments on) a GitHub issue with the `auto-incident` label if the
+Akash provider's metrics endpoint is unreachable. Resolves the issue
+automatically when the endpoint recovers.
+
+## Archive node + orphan recovery
+
+562 historical packets are stuck because no public RPC indexes the
+relevant `send_packet` events. See `ARCHIVE_NODE.md` for the full
+recovery plan (cosmovisor genesis sync OR paid archive RPC). The
+relayer is healthy and relays new packets normally; the orphans are
+deferred work.

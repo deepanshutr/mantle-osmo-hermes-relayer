@@ -1,0 +1,127 @@
+{
+  "deadline_ts": 1777400343,
+  "deadline_human": "2026-04-28T18:19:03",
+  "started_ts": 1777396743,
+  "iterations": [
+    {
+      "n": 1,
+      "ts": 1777396853,
+      "approaches": [
+        "LCD GetTxsEvent x10",
+        "gRPC archive probes",
+        "Numia GraphQL",
+        "ICF/bdjuno"
+      ],
+      "result": "no new endpoint; issue filed"
+    },
+    {
+      "n": 2,
+      "ts": 1777398274,
+      "approaches": [
+        "mantle adjacent recv_packets",
+        "ccvalidators range",
+        "mintscan/mapofzones",
+        "rpc.assetmantle.one"
+      ],
+      "result": "no progress; mantle-side data insufficient"
+    },
+    {
+      "n": 3,
+      "ts": 1777399620,
+      "approaches": [
+        "GitHub issue check",
+        "Reddit search",
+        "Cosmos forum search",
+        "ibc-go discussion post",
+        "osmosis-labs discussion post"
+      ],
+      "result": "broad community outreach posted; awaiting replies"
+    },
+    {
+      "n": 4,
+      "ts": 1777427137,
+      "approaches": [
+        "mantle archive recv probe",
+        "Numia variants",
+        "explorer.assetmantle.one"
+      ],
+      "result": "mantle archive horizon also above orphan range; numia auth-gated"
+    },
+    {
+      "n": 5,
+      "ts": 1777427219,
+      "approaches": [
+        "validator pattern sweep",
+        "validators.cosmos.directory",
+        "Cosmoscan/Mintscan/chainscan",
+        "Nitter",
+        "DDG search",
+        "osmosis docs raw"
+      ],
+      "result": "all exhausted; no public free archive < h=41M exists"
+    },
+    {
+      "n": 6,
+      "ts": 1777428554,
+      "approaches": [
+        "fresh retry 13 endpoints x 12 seqs",
+        "chain-registry issue"
+      ],
+      "result": "0 hits; new issue at chain-registry #7647"
+    },
+    {
+      "n": 7,
+      "ts": 1777429632,
+      "approaches": [
+        "github code search",
+        "PulsarData/notional list",
+        "13 new endpoint probes"
+      ],
+      "result": "all dead/DNS-stale; chain-registry is the complete current set"
+    },
+    {
+      "n": 8,
+      "ts": 1777430641,
+      "approaches": [
+        "final community check",
+        "Notional cosmosia variants"
+      ],
+      "result": "all exhausted; cosmosia retired"
+    }
+  ],
+  "blocked_seqs": [
+    51441,
+    52117,
+    52118,
+    52119,
+    52120,
+    52121,
+    52122,
+    52123,
+    52124,
+    52125,
+    52126,
+    52127
+  ],
+  "recovered_this_loop": [],
+  "approaches_tried": [
+    "LCD GetTxsEvent",
+    "gRPC archive ports",
+    "Numia GraphQL",
+    "ICF bdjuno",
+    "GitHub issue",
+    "mantle adjacent seqs",
+    "ccvalidators range probe",
+    "Mintscan/mapofzones",
+    "Reddit search",
+    "Cosmos forum search",
+    "osmosis-labs discussion",
+    "ibc-go discussion"
+  ],
+  "github_issue_filed": "https://github.com/deepanshutr/mantle-osmo-hermes-relayer/issues/1",
+  "notes_file": "/tmp/orphan-loop/notes.md",
+  "github_discussion_osmosis": "https://github.com/osmosis-labs/osmosis/discussions/9682",
+  "github_discussion_ibcgo": "https://github.com/cosmos/ibc-go/discussions/8918",
+  "github_issue_chain_registry": "https://github.com/cosmos/chain-registry/issues/7647",
+  "loop_closed_ts": 1777430641
+}
